@@ -18,6 +18,6 @@
     "outDir": "dist",
     "rootDir": "."
   },
-  "include": ["src", "api", "*.ts"],
+  "include": ["src", "api", "scripts", "*.ts"],
   "exclude": ["node_modules", "dist"]
 }

@@ -3,12 +3,12 @@
   "crons": [
     {
       "path": "/api/cron/sync",
-      "schedule": "0 */4 * * *"
+      "schedule": "0 6 * * *"
     }
   ],
   "functions": {
     "api/cron/sync.ts": {
-      "maxDuration": 300
+      "maxDuration": 60
     },
     "api/webhooks/[bank].ts": {
       "maxDuration": 60
