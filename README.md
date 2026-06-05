@@ -1,6 +1,7 @@
 # Actual Bank Engine
 
 [![CI](https://github.com/nderman/actual-bank-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/nderman/actual-bank-engine/actions/workflows/ci.yml)
+[![Sync](https://github.com/nderman/actual-bank-engine/actions/workflows/sync.yml/badge.svg)](https://github.com/nderman/actual-bank-engine/actions/workflows/sync.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
 Extensible banking → [Actual Budget](https://actualbudget.org) integration engine, built as a
@@ -71,6 +72,46 @@ Two triggers hit the same `/api/cron/sync` endpoint; overlap is harmless (dedupe
 
 GitHub may drift scheduled runs by a few minutes and auto-disables schedules after 60 days of repo
 inactivity — fine here, since the multi-day lookback + daily Vercel backstop mean nothing is lost.
+
+## Architecture decisions
+
+Short records of the non-obvious choices and *why* — the alternatives considered are as
+informative as the picks.
+
+**1. Pure serverless, no database.** Dedup state and budget data live in Actual itself, so the
+engine stays stateless and deploys free on Vercel. *Rejected:* a Postgres/KV "seen transactions"
+table — it duplicates state Actual already owns and adds infra to run.
+
+**2. `imported_id` is the dedup key, computed by the engine.** Both ingestion paths derive the
+same deterministic id (bank id, else a hash of invariant economic fields), and Actual enforces
+exactly-once on insert. *Rejected:* querying Actual for existing transactions before each insert
+(racy under concurrent webhook + cron, and O(n) reads).
+
+**3. Plugins are pure translators.** A plugin only maps bank data → `NormalizedTransaction`; it
+never touches Actual, dedups, or decides what's imported. This keeps the contributor surface tiny
+and fully unit-testable with fixtures. The strict `zod` schema fails a misbehaving plugin at *its
+own* boundary, not deep in the engine.
+
+**4. One guarded Actual session (`withSession`).** `@actual-app/api` holds a SQLite handle and
+background workers; a function that returns without `actual.shutdown()` leaks memory across warm
+invocations. A single `try/finally` wrapper is the *only* sanctioned entry point, so teardown can
+never be forgotten. The cron sweep downloads the budget once and imports all plugins in that one
+session.
+
+**5. `/tmp` is scratch, never state.** Vercel functions are read-only except `/tmp`, which is
+ephemeral. We point Actual's `dataDir` there and re-download the budget every invocation, so cold
+starts (empty `/tmp`) are the normal path, not an error.
+
+**6. Investec is poll-only.** Its Account Information API has no webhooks, so the plugin implements
+`BankPlugin` only — verified against Investec's published OpenAPI spec. The generic `WebhookPlugin`
+interface stays in core for banks that *do* push (Monzo, TrueLayer, GoCardless), proving the
+design generalizes without carrying dead Investec-specific code.
+
+**7. Scheduling = GitHub Actions + Vercel cron backstop.** Vercel's free tier caps cron at
+once-daily, so a GitHub Actions schedule pings the same endpoint every 30 min — free, in-repo, and
+version-controlled. The daily Vercel cron remains as a backstop; overlap is harmless because of
+decision #2. *Rejected:* paying for Vercel Pro, or an external scheduler whose config lives outside
+the repo.
 
 ## Release automation
 
