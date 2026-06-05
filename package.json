@@ -11,7 +11,7 @@
     "build": "tsc --noEmit",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"**/*.{ts,json,md}\"",
-    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "test": "node --import tsx --test $(find src -name '*.test.ts')",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
