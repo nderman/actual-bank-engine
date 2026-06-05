@@ -1,0 +1,38 @@
+# Daily balance reconciliation — anchors each Actual account to its real Investec balance.
+# Runs once a day, after the frequent transaction sync, so it computes against fresh data.
+# See src/core/reconcile.ts for the logic.
+#
+# Required repo configuration (Settings → Secrets and variables → Actions → Secrets):
+#   RECONCILE_URL  e.g. https://your-app.vercel.app/api/cron/reconcile
+#   CRON_SECRET    the same value set in your Vercel environment variables
+name: Reconcile balances
+
+on:
+  schedule:
+    - cron: '20 6 * * *' # daily 06:20 UTC (after the 06:00 sync)
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bank-reconcile
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger reconcile
+        env:
+          RECONCILE_URL: ${{ secrets.RECONCILE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$RECONCILE_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "::error::RECONCILE_URL and CRON_SECRET secrets must be set."
+            exit 1
+          fi
+          curl -fsS --max-time 90 \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "$RECONCILE_URL" | tee response.json
+          echo ""

@@ -22,6 +22,10 @@ export interface ImportResult {
 /** The narrow surface plugins/engine use inside a session. */
 export interface ActualSession {
   importTransactions(accountId: string, transactions: ActualTransaction[]): Promise<ImportResult>;
+  /** Read an account's transactions in [startDate, endDate] (used by balance reconcile). */
+  getTransactions(accountId: string, startDate: string, endDate: string): Promise<ActualTransactionRecord[]>;
+  /** Patch fields on an existing transaction by id. */
+  updateTransaction(id: string, fields: Partial<ActualTransaction>): Promise<unknown>;
 }
 
 /** Actual's transaction shape (subset we populate). `imported_id` drives dedupe. */
@@ -33,6 +37,13 @@ export interface ActualTransaction {
   notes?: string;
   cleared?: boolean;
   imported_id: string;
+}
+
+/** Subset of a stored Actual transaction we read back. */
+export interface ActualTransactionRecord {
+  id: string;
+  amount: number;
+  imported_id?: string;
 }
 
 let initialized = false;
@@ -68,6 +79,9 @@ export async function withSession<T>(
   const session: ActualSession = {
     importTransactions: (accountId, transactions) =>
       actual.importTransactions(accountId, transactions) as Promise<ImportResult>,
+    getTransactions: (accountId, startDate, endDate) =>
+      actual.getTransactions(accountId, startDate, endDate) as Promise<ActualTransactionRecord[]>,
+    updateTransaction: (id, fields) => actual.updateTransaction(id, fields),
   };
 
   try {

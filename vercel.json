@@ -10,6 +10,9 @@
     "api/cron/sync.ts": {
       "maxDuration": 60
     },
+    "api/cron/reconcile.ts": {
+      "maxDuration": 60
+    },
     "api/webhooks/[bank].ts": {
       "maxDuration": 60
     }
