@@ -12,17 +12,19 @@ export const PLUGIN_ID = 'investec';
  */
 export const InvestecTxnSchema = z.object({
   accountId: z.string(),
-  type: z.string().optional(), // "DEBIT" | "CREDIT"
-  status: z.string().optional(), // "POSTED" | "PENDING"
-  description: z.string().optional(),
-  cardNumber: z.string().optional(),
+  // Older records return `null` for some fields (not just omit them), so use .nullish()
+  // (accepts string | null | undefined). The mapper coalesces null/undefined uniformly.
+  type: z.string().nullish(), // "DEBIT" | "CREDIT"
+  status: z.string().nullish(), // "POSTED" | "PENDING"
+  description: z.string().nullish(),
+  cardNumber: z.string().nullish(),
   amount: z.union([z.number(), z.string()]),
-  transactionDate: z.string().optional(),
-  postingDate: z.string().optional(),
-  valueDate: z.string().optional(),
+  transactionDate: z.string().nullish(),
+  postingDate: z.string().nullish(),
+  valueDate: z.string().nullish(),
   // Investec exposes different id fields across endpoints; take whichever is present.
-  uuid: z.string().optional(),
-  transactionId: z.string().optional(),
+  uuid: z.string().nullish(),
+  transactionId: z.string().nullish(),
 });
 
 export type InvestecTxn = z.infer<typeof InvestecTxnSchema>;
@@ -33,7 +35,7 @@ function toMinorUnits(amount: number | string): number {
   return Math.round(major * 100);
 }
 
-function toIsoDate(value: string | undefined): string {
+function toIsoDate(value: string | null | undefined): string {
   if (!value) throw new Error('Investec: transaction is missing a usable date');
   // Investec dates arrive as "YYYY-MM-DD" or full ISO timestamps; keep the calendar date.
   return value.slice(0, 10);
@@ -68,7 +70,7 @@ export function mapInvestecTransaction(
 
   return parseTransaction({
     source: PLUGIN_ID,
-    sourceTransactionId: txn.uuid ?? txn.transactionId,
+    sourceTransactionId: txn.uuid ?? txn.transactionId ?? undefined,
     accountId: resolveAccountId(config, txn.accountId),
     date: toIsoDate(txn.transactionDate ?? txn.postingDate ?? txn.valueDate),
     amount,
