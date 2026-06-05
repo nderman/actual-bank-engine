@@ -102,9 +102,10 @@ The scheduled sync only pulls a rolling 3-day window. For first-time setup:
     "https://<app>.vercel.app/api/cron/sync?days=730"   # or ?from=YYYY-MM-DD&to=YYYY-MM-DD
   ```
 - **Reconcile balances** — Actual derives an account balance from its transactions, so if history
-  doesn't reach the account's opening it won't match the bank. `npm run reconcile` fetches each
-  account's current Investec balance and writes a single self-correcting opening-balance
-  adjustment so Actual matches reality. Re-runnable.
+  doesn't reach the account's opening it won't match the bank. `npm run reconcile` (or the daily
+  `/api/cron/reconcile` endpoint) fetches each account's current Investec balance and writes a
+  single self-correcting opening-balance adjustment so Actual matches reality. Re-runnable and
+  idempotent — a no-op once anchored, unless the bank balance drifts from the transaction sum.
 
 ## Scheduling
 
@@ -114,6 +115,9 @@ Two triggers hit the same `/api/cron/sync` endpoint; overlap is harmless (dedupe
 - **GitHub Actions** (`.github/workflows/sync.yml`) — free, version-controlled, every 30 min. Set
   repo secrets `SYNC_URL` (`https://<app>.vercel.app/api/cron/sync`) and `CRON_SECRET` (same value
   as in Vercel). Manually runnable from the Actions tab.
+- **Daily reconcile** (`.github/workflows/reconcile.yml`) — runs `/api/cron/reconcile` once a day at
+  06:20 UTC, *after* the sync, to keep balances anchored. Set secret `RECONCILE_URL`
+  (`https://<app>.vercel.app/api/cron/reconcile`).
 
 GitHub may drift scheduled runs by a few minutes and auto-disables schedules after 60 days of repo
 inactivity — fine here, since the multi-day lookback + daily Vercel backstop mean nothing is lost.
