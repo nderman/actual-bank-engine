@@ -70,7 +70,9 @@ export function mapInvestecTransaction(
 
   return parseTransaction({
     source: PLUGIN_ID,
-    sourceTransactionId: txn.uuid ?? txn.transactionId ?? undefined,
+    // `||` (not `??`) so an empty-string id from older records is treated as absent, falling
+    // back to the deterministic hash key in dedupe.ts.
+    sourceTransactionId: txn.uuid || txn.transactionId || undefined,
     accountId: resolveAccountId(config, txn.accountId),
     date: toIsoDate(txn.transactionDate ?? txn.postingDate ?? txn.valueDate),
     amount,
