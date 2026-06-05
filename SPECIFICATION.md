@@ -386,11 +386,11 @@ import many, shut down once) to amortize the budget download.
     │   └── ledger.ts          # the funnel: normalize → dedupe → import
     └── plugins/
         ├── registry.ts
-        └── investec/          # reference implementation
-            ├── index.ts       # BankPlugin & WebhookPlugin
+        └── investec/          # reference implementation (poll-only)
+            ├── index.ts       # BankPlugin
             ├── auth.ts        # OAuth2 client-credentials
             ├── api.ts         # transaction fetch
-            └── webhook.ts     # signature verify + payload parse
+            └── map.ts         # Investec record → NormalizedTransaction
 ```
 
 ### 5.1 `vercel.json` cron
@@ -401,17 +401,22 @@ import many, shut down once) to amortize the budget download.
 }
 ```
 
+> On the Vercel **Hobby** plan, cron runs at most once/day and functions cap at 60s, so the shipped
+> `vercel.json` uses a daily schedule (`0 6 * * *`) and `maxDuration: 60`. The cron's multi-day
+> lookback window means a once-daily run still loses nothing.
+
 ---
 
 ## 6. Reference Implementation — Investec
 
-Investec exposes the **Programmable Banking Open API**:
+Investec exposes the **Private Bank Account Information API**:
 - **OAuth2 client-credentials** (`POST /identity/v2/oauth2/token`) using `client_id` /
-  `client_secret` + an `x-api-key` header → short-lived bearer token.
+  `client_secret` + an `x-api-key` header → short-lived bearer token (valid 30 min).
 - **Accounts** (`GET /za/pb/v1/accounts`) and **Transactions**
   (`GET /za/pb/v1/accounts/{accountId}/transactions?fromDate=&toDate=`).
-- **Webhooks/events** (Programmable Banking card + event feeds) deliver JSON payloads; we verify a
-  shared-secret HMAC and parse transaction-shaped events.
+- **No webhooks.** This API is poll-only, so the Investec plugin implements `BankPlugin` only and
+  is driven entirely by the cron sweep. (The engine's generic `WebhookPlugin` interface remains
+  available for future plugins targeting push-capable banks.)
 
 **Mapping → `NormalizedTransaction`:**
 
@@ -449,7 +454,6 @@ are contained entirely within `src/plugins/investec/` and never leak into core.
 | `ACTUAL_DATA_DIR` | defaults to `/tmp/actual-data` |
 | `CRON_SECRET` | shared secret Vercel Cron presents |
 | `INVESTEC_CLIENT_ID` / `INVESTEC_CLIENT_SECRET` / `INVESTEC_API_KEY` | Investec OAuth |
-| `INVESTEC_WEBHOOK_SECRET` | HMAC secret for webhook verification |
 | `INVESTEC_ACCOUNT_MAP` | JSON map `{ investecAccountId: actualAccountUuid }` |
 
 ---

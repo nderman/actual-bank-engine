@@ -19,7 +19,6 @@ const EnvSchema = z.object({
   INVESTEC_CLIENT_ID: z.string().optional(),
   INVESTEC_CLIENT_SECRET: z.string().optional(),
   INVESTEC_API_KEY: z.string().optional(),
-  INVESTEC_WEBHOOK_SECRET: z.string().optional(),
   INVESTEC_ACCOUNT_MAP: z
     .string()
     .optional()

@@ -22,15 +22,20 @@ Vercel Cron  ─▶ /api/cron/sync      ──┘
 - **Serverless-safe:** `@actual-app/api` writes to `/tmp` (the only writable path on Vercel); the
   Actual session is always torn down with `actual.shutdown()` via a `finally` guard.
 
+A plugin opts into either capability by implementing `BankPlugin` (polling) and/or
+`WebhookPlugin` (push). The reference **Investec** plugin is **poll-only** — Investec's Account
+Information API has no webhooks. The `WebhookPlugin` interface and `/api/webhooks/[bank]` route
+remain for banks that *do* push events (Monzo, TrueLayer, GoCardless, …).
+
 ## Project layout
 
 | Path | Purpose |
 |---|---|
-| `api/webhooks/[bank].ts` | Real-time ingestion endpoint |
+| `api/webhooks/[bank].ts` | Real-time ingestion endpoint (for push-capable banks) |
 | `api/cron/sync.ts` | Scheduled polling sweep |
 | `src/core/` | Schema, plugin contracts, dedupe, Actual client, ledger engine |
-| `src/plugins/investec/` | Reference plugin (OAuth poll + HMAC webhook) |
-| `vercel.json` | Cron schedule (`0 */4 * * *`) + function durations |
+| `src/plugins/investec/` | Reference plugin (OAuth client-credentials polling) |
+| `vercel.json` | Cron schedule + function durations |
 
 ## Develop
 
