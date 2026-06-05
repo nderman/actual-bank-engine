@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Actual Bank Engine</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0; min-height: 100vh; display: grid; place-items: center;
+        font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        background: #0b0d12; color: #e6e8ee;
+      }
+      main { max-width: 640px; padding: 2.5rem 1.5rem; }
+      h1 { font-size: 1.6rem; margin: 0 0 .25rem; }
+      .sub { color: #9aa3b2; margin: 0 0 1.75rem; }
+      .badge {
+        display: inline-block; font-size: .8rem; padding: .15rem .6rem; border-radius: 999px;
+        background: #18351f; color: #57d977; border: 1px solid #2a5a36; margin-bottom: 1.5rem;
+      }
+      code { background: #161a22; padding: .15rem .4rem; border-radius: 6px; color: #c7d0e0; }
+      ul { padding-left: 1.1rem; } li { margin: .35rem 0; }
+      a { color: #7aa2ff; }
+      .foot { margin-top: 2rem; color: #6b7488; font-size: .85rem; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="badge">● API online</div>
+      <h1>Actual Bank Engine</h1>
+      <p class="sub">
+        Extensible banking → <a href="https://actualbudget.org">Actual Budget</a> sync,
+        running as a pure Vercel serverless API.
+      </p>
+      <p>This host exposes machine endpoints only — there is no web UI:</p>
+      <ul>
+        <li><code>GET /api/cron/sync</code> — scheduled polling sweep (requires a bearer secret)</li>
+        <li><code>POST /api/webhooks/&lt;bank&gt;</code> — real-time ingestion for push-capable banks</li>
+      </ul>
+      <p class="foot">
+        Source &amp; docs: <a href="https://github.com/nderman/actual-bank-engine">github.com/nderman/actual-bank-engine</a>
+      </p>
+    </main>
+  </body>
+</html>
