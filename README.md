@@ -12,10 +12,41 @@ See **[SPECIFICATION.md](./SPECIFICATION.md)** for the full design contract.
 
 ## How it works
 
-```
-Bank webhook ─▶ /api/webhooks/[bank] ─┐
-                                       ├─▶ normalize ─▶ dedupe (imported_id) ─▶ Actual
-Vercel Cron  ─▶ /api/cron/sync      ──┘
+```mermaid
+flowchart LR
+    subgraph triggers [Triggers]
+        GHA["GitHub Actions<br/>(every 30 min)"]
+        VC["Vercel Cron<br/>(daily backstop)"]
+        BW["Bank webhook<br/>(push-capable banks)"]
+    end
+
+    subgraph api [Vercel Serverless API]
+        CRON["/api/cron/sync"]
+        HOOK["/api/webhooks/[bank]"]
+    end
+
+    subgraph plugins [Bank plugins]
+        INV["Investec<br/>(BankPlugin · poll)"]
+        OTH["Other banks<br/>(BankPlugin / WebhookPlugin)"]
+    end
+
+    subgraph engine [Core Ledger Engine]
+        NORM["Normalize<br/>(zod schema)"]
+        DEDUP["Dedupe<br/>(imported_id)"]
+        SESS["withSession<br/>(guaranteed shutdown)"]
+    end
+
+    ACTUAL[("Actual Budget<br/>self-hosted")]
+
+    GHA --> CRON
+    VC --> CRON
+    BW --> HOOK
+    CRON -->|fetchTransactions| INV
+    CRON -->|fetchTransactions| OTH
+    HOOK -->|parseWebhook| OTH
+    INV --> NORM
+    OTH --> NORM
+    NORM --> DEDUP --> SESS --> ACTUAL
 ```
 
 - **Exactly-once:** a transaction seen via both a webhook and a cron sweep is booked once,
