@@ -6,12 +6,49 @@ import { isBankPlugin } from '../../src/core/plugin.js';
 import type { NormalizedTransaction } from '../../src/core/schema.js';
 import { allPlugins } from '../../src/plugins/registry.js';
 
-/** Look back this many days each sweep; comfortably overlaps the 4-hourly cadence so nothing
- *  slips between runs. Duplicates are harmless — Actual dedupes on imported_id. */
+/** Look back this many days each scheduled sweep; comfortably overlaps the daily cadence so
+ *  nothing slips between runs. Duplicates are harmless — Actual dedupes on imported_id. */
 const LOOKBACK_DAYS = 3;
+
+/** Hard cap for manual backfills, so a stray `?days=99999` can't hammer the bank. */
+const MAX_LOOKBACK_DAYS = 730;
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
+}
+
+function firstQuery(v: string | string[] | undefined): string | undefined {
+  return Array.isArray(v) ? v[0] : v;
+}
+
+/**
+ * Resolve the [startDate, endDate] window. Defaults to the rolling LOOKBACK_DAYS sweep, but a
+ * bearer-authenticated caller can widen it for a one-time backfill via query params:
+ *   ?days=180            → today-180 .. today
+ *   ?from=YYYY-MM-DD[&to=YYYY-MM-DD]
+ */
+function resolveWindow(req: VercelRequest, now: Date): { startDate: string; endDate: string } {
+  const from = firstQuery(req.query.from);
+  const to = firstQuery(req.query.to);
+  const daysRaw = firstQuery(req.query.days);
+
+  const endDate = from && ISO_DATE.test(to ?? '') ? (to as string) : isoDate(now);
+
+  if (from && ISO_DATE.test(from)) {
+    return { startDate: from, endDate };
+  }
+
+  let days = LOOKBACK_DAYS;
+  if (daysRaw !== undefined) {
+    const parsed = Number(daysRaw);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      days = Math.min(Math.floor(parsed), MAX_LOOKBACK_DAYS);
+    }
+  }
+  const start = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+  return { startDate: isoDate(start), endDate: isoDate(now) };
 }
 
 function authorized(req: VercelRequest, secret: string): boolean {
@@ -43,9 +80,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
   }
 
   const now = ctx.now();
-  const start = new Date(now.getTime() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
-  const startDate = isoDate(start);
-  const endDate = isoDate(now);
+  const { startDate, endDate } = resolveWindow(req, now);
 
   const pollers = allPlugins().filter(isBankPlugin);
   const outcomes: PluginOutcome[] = [];
