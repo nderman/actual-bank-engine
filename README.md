@@ -60,6 +60,18 @@ Plugins are pure translators — they never talk to Actual or dedupe; the core e
 Copy `.env.example` → `.env` and fill in your Actual server + bank credentials. On Vercel, set
 these as Environment Variables and add `CRON_SECRET` (presented by Vercel Cron as a bearer token).
 
+## Scheduling
+
+Two triggers hit the same `/api/cron/sync` endpoint; overlap is harmless (deduped by `imported_id`):
+
+- **Vercel Cron** (`vercel.json`) — daily backstop. The free Hobby plan only allows once-daily cron.
+- **GitHub Actions** (`.github/workflows/sync.yml`) — free, version-controlled, every 30 min. Set
+  repo secrets `SYNC_URL` (`https://<app>.vercel.app/api/cron/sync`) and `CRON_SECRET` (same value
+  as in Vercel). Manually runnable from the Actions tab.
+
+GitHub may drift scheduled runs by a few minutes and auto-disables schedules after 60 days of repo
+inactivity — fine here, since the multi-day lookback + daily Vercel backstop mean nothing is lost.
+
 ## Release automation
 
 Major (`X.0.0`) GitHub releases are announced to LinkedIn / X via Buffer using

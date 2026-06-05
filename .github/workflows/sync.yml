@@ -1,0 +1,45 @@
+# Regular bank sync — pings the deployed /api/cron/sync endpoint on a schedule.
+#
+# Why this exists: Vercel's free (Hobby) plan only runs cron jobs once per day. This GitHub
+# Action gives a free, version-controlled, more-frequent trigger. The Vercel daily cron stays
+# on as a backstop — overlapping runs are harmless (transactions are deduped by imported_id).
+#
+# Required repo configuration (Settings → Secrets and variables → Actions → Secrets):
+#   SYNC_URL     e.g. https://your-app.vercel.app/api/cron/sync
+#   CRON_SECRET  the same value set in your Vercel environment variables
+#
+# Note: GitHub may delay scheduled runs under load, and auto-disables schedules after 60 days
+# of repository inactivity. Any commit re-enables them.
+name: Sync transactions
+
+on:
+  schedule:
+    - cron: '*/30 * * * *' # every 30 minutes (UTC)
+  workflow_dispatch: {} # allow manual runs from the Actions tab (handy for demos)
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bank-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger sync
+        env:
+          SYNC_URL: ${{ secrets.SYNC_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$SYNC_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "::error::SYNC_URL and CRON_SECRET secrets must be set."
+            exit 1
+          fi
+          # -f fails the run on HTTP >= 400 (e.g. 401 auth, 503 transient), surfacing problems
+          # in the Actions UI. --max-time guards against a hung function.
+          curl -fsS --max-time 90 \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "$SYNC_URL" | tee response.json
+          echo "" # newline after the JSON body
