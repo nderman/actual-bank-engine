@@ -1,0 +1,17 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/cron/sync",
+      "schedule": "0 */4 * * *"
+    }
+  ],
+  "functions": {
+    "api/cron/sync.ts": {
+      "maxDuration": 300
+    },
+    "api/webhooks/[bank].ts": {
+      "maxDuration": 60
+    }
+  }
+}
