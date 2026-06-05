@@ -17,6 +17,14 @@ const TransactionsResponseSchema = z.object({
   }),
 });
 
+const BalanceResponseSchema = z.object({
+  data: z.object({
+    currentBalance: z.union([z.number(), z.string()]),
+    availableBalance: z.union([z.number(), z.string()]).optional(),
+    currency: z.string().optional(),
+  }),
+});
+
 async function authedGet(ctx: PluginContext, path: string): Promise<unknown> {
   const token = await getAccessToken(ctx);
   const { apiKey } = readCredentials(ctx);
@@ -37,6 +45,18 @@ async function authedGet(ctx: PluginContext, path: string): Promise<unknown> {
 export async function listAccountIds(ctx: PluginContext): Promise<string[]> {
   const json = await authedGet(ctx, '/za/pb/v1/accounts');
   return AccountsResponseSchema.parse(json).data.accounts.map((a) => a.accountId);
+}
+
+/** Fetch an account's current balance in integer minor units (cents). */
+export async function fetchInvestecBalanceCents(
+  investecAccountId: string,
+  ctx: PluginContext,
+): Promise<number> {
+  const json = await authedGet(ctx, `/za/pb/v1/accounts/${encodeURIComponent(investecAccountId)}/balance`);
+  const { currentBalance } = BalanceResponseSchema.parse(json).data;
+  const major = typeof currentBalance === 'string' ? Number(currentBalance) : currentBalance;
+  if (!Number.isFinite(major)) throw new Error(`Investec: non-numeric balance "${currentBalance}"`);
+  return Math.round(major * 100);
 }
 
 /**

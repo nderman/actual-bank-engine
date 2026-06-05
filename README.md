@@ -92,6 +92,20 @@ Plugins are pure translators — they never talk to Actual or dedupe; the core e
 Copy `.env.example` → `.env` and fill in your Actual server + bank credentials. On Vercel, set
 these as Environment Variables and add `CRON_SECRET` (presented by Vercel Cron as a bearer token).
 
+## Initial backfill & balances
+
+The scheduled sync only pulls a rolling 3-day window. For first-time setup:
+
+- **Backfill history** — call the endpoint with a wider window (bearer-authed, capped at 730 days):
+  ```bash
+  curl -H "Authorization: Bearer $CRON_SECRET" \
+    "https://<app>.vercel.app/api/cron/sync?days=730"   # or ?from=YYYY-MM-DD&to=YYYY-MM-DD
+  ```
+- **Reconcile balances** — Actual derives an account balance from its transactions, so if history
+  doesn't reach the account's opening it won't match the bank. `npm run reconcile` fetches each
+  account's current Investec balance and writes a single self-correcting opening-balance
+  adjustment so Actual matches reality. Re-runnable.
+
 ## Scheduling
 
 Two triggers hit the same `/api/cron/sync` endpoint; overlap is harmless (deduped by `imported_id`):

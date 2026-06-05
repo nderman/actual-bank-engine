@@ -13,6 +13,7 @@
     "format": "prettier --write \"**/*.{ts,json,md}\"",
     "test": "node --import tsx --test $(find src -name '*.test.ts')",
     "discover": "node --env-file=.env --import tsx scripts/discover.ts",
+    "reconcile": "node --env-file=.env --import tsx scripts/reconcile.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
