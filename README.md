@@ -1,5 +1,8 @@
 # Actual Bank Engine
 
+[![CI](https://github.com/nderman/actual-bank-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/nderman/actual-bank-engine/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+
 Extensible banking → [Actual Budget](https://actualbudget.org) integration engine, built as a
 pure **Vercel Serverless API**. Supports real-time **webhooks** and scheduled **Vercel Cron**
 syncs through one normalization + ledger pipeline. New banks plug in via a small typed interface.
@@ -51,3 +54,12 @@ Plugins are pure translators — they never talk to Actual or dedupe; the core e
 
 Copy `.env.example` → `.env` and fill in your Actual server + bank credentials. On Vercel, set
 these as Environment Variables and add `CRON_SECRET` (presented by Vercel Cron as a bearer token).
+
+## Release automation
+
+Major (`X.0.0`) GitHub releases are announced to LinkedIn / X via Buffer using
+[`release-social-action`](https://github.com/nderman/release-social-action)
+(`.github/workflows/announce.yml`). To enable it, set in **Settings → Secrets and variables → Actions**:
+
+- Secrets: `BUFFER_API_KEY`, `ANTHROPIC_API_KEY`
+- Variables: `BUFFER_CHANNEL_IDS` (comma/newline-separated Buffer channel IDs)

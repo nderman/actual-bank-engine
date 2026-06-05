@@ -1,0 +1,36 @@
+# Announce major releases to social (LinkedIn / X) via Buffer.
+# Powered by https://github.com/nderman/release-social-action
+#
+# Required repo configuration (Settings → Secrets and variables → Actions):
+#   Secrets:   BUFFER_API_KEY, ANTHROPIC_API_KEY
+#   Variables: BUFFER_CHANNEL_IDS   (comma- or newline-separated Buffer channel IDs)
+name: Announce release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  announce:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Schedule social posts
+        id: social
+        uses: nderman/release-social-action@v3.0.0
+        with:
+          buffer_api_key: ${{ secrets.BUFFER_API_KEY }}
+          channel_ids: ${{ vars.BUFFER_CHANNEL_IDS }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          per_platform: 'true' # size copy per network (LinkedIn long-form, X short)
+          major_only: 'true' # only fire on X.0.0 releases
+          schedule_mode: 'addToQueue'
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "posted=${{ steps.social.outputs.posted }}"
+          echo "skipped=${{ steps.social.outputs.skipped }}"
+          echo "reason=${{ steps.social.outputs.reason }}"
