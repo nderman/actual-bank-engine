@@ -72,6 +72,7 @@ export async function fetchInvestecTransactions(
   const accountIds = await listAccountIds(ctx);
   const out: NormalizedTransaction[] = [];
 
+  let skippedNoId = 0;
   for (const accountId of accountIds) {
     if (!ctx.config.INVESTEC_ACCOUNT_MAP[accountId]) {
       ctx.logger.warn('skipping unmapped Investec account', { accountId });
@@ -84,13 +85,22 @@ export async function fetchInvestecTransactions(
     for (const rec of transactions) {
       // Inject the owning accountId — the per-transaction payload may omit it.
       const withAccount = { ...(rec as Record<string, unknown>), accountId };
-      out.push(mapInvestecTransaction(withAccount, ctx.config));
+      const txn = mapInvestecTransaction(withAccount, ctx.config);
+      // Skip transactions Investec hasn't assigned a stable id to yet (not-yet-posted). The
+      // hash fallback would key them differently from the eventual posted version, producing a
+      // duplicate (pending→posted). They re-appear cleanly, with an id, once posted.
+      if (!txn.sourceTransactionId) {
+        skippedNoId++;
+        continue;
+      }
+      out.push(txn);
     }
   }
 
   ctx.logger.info('fetched investec transactions', {
     accounts: accountIds.length,
     transactions: out.length,
+    skippedNoId,
   });
   return out;
 }
