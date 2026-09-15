@@ -33,6 +33,10 @@ jobs:
           SYNC_URL: ${{ secrets.SYNC_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
+          # pipefail is load-bearing: without it the `| tee` below swallows curl's exit code
+          # (bash reports the last command in a pipeline), so `set -e` never trips and a failing
+          # sync reports a green tick. That masked four days of HTTP 503s in September 2026.
+          set -o pipefail
           if [ -z "$SYNC_URL" ] || [ -z "$CRON_SECRET" ]; then
             echo "::error::SYNC_URL and CRON_SECRET secrets must be set."
             exit 1

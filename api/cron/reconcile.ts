@@ -4,6 +4,7 @@ import { buildContext } from '../../src/core/context.js';
 import { reconcileAccount } from '../../src/core/reconcile.js';
 import type { ReconcileOutcome } from '../../src/core/reconcile.js';
 import { fetchInvestecBalanceCents } from '../../src/plugins/investec/api.js';
+import { describeError } from '../../src/core/errors.js';
 
 function authorized(req: VercelRequest, secret: string): boolean {
   return req.headers.authorization === `Bearer ${secret}`;
@@ -42,8 +43,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
           const targetCents = await fetchInvestecBalanceCents(investecId, ctx);
           results.push(await reconcileAccount(session, ctx.logger, actualId, targetCents, today));
         } catch (err) {
-          ctx.logger.error('reconcile account failed', { actualId, err: String(err) });
-          results.push({ actualId, error: String(err) });
+          ctx.logger.error('reconcile account failed', { actualId, err: describeError(err) });
+          results.push({ actualId, error: describeError(err) });
         }
       }
       return results;
@@ -51,7 +52,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
 
     res.status(200).json({ reconciled: outcomes });
   } catch (err) {
-    ctx.logger.error('reconcile failed', { err: String(err) });
+    ctx.logger.error('reconcile failed', { err: describeError(err) });
     res.status(503).json({ error: 'reconcile failed, retry' });
   }
 }

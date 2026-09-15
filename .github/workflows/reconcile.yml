@@ -28,6 +28,9 @@ jobs:
           RECONCILE_URL: ${{ secrets.RECONCILE_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
+          # pipefail is load-bearing — see the note in sync.yml. Without it the `| tee` hides a
+          # failing curl behind a green tick.
+          set -o pipefail
           if [ -z "$RECONCILE_URL" ] || [ -z "$CRON_SECRET" ]; then
             echo "::error::RECONCILE_URL and CRON_SECRET secrets must be set."
             exit 1
@@ -36,3 +39,10 @@ jobs:
             -H "Authorization: Bearer ${CRON_SECRET}" \
             "$RECONCILE_URL" | tee response.json
           echo ""
+          # The endpoint deliberately returns 200 with per-account errors so Vercel Cron doesn't
+          # retry-storm — which means curl alone can't tell us a thing failed. Inspect the body:
+          # an account that couldn't be reconciled is a real failure and must go red.
+          if grep -q '"error"' response.json; then
+            echo "::error::reconcile reported per-account failures (see response body above)"
+            exit 1
+          fi

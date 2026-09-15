@@ -2,6 +2,7 @@ import { mkdir } from 'node:fs/promises';
 import * as actual from '@actual-app/api';
 import type { EngineConfig } from './config.js';
 import type { Logger } from './logger.js';
+import { describeError } from './errors.js';
 
 /**
  * Owns the entire `@actual-app/api` lifecycle (SPECIFICATION.md §1.3, §3.4).
@@ -94,7 +95,7 @@ export async function withSession<T>(
       }
     } catch (err) {
       // Never let a teardown failure mask the real result; just record it.
-      logger.error('actual.shutdown() failed', { err: String(err) });
+      logger.error('actual.shutdown() failed', { err: describeError(err) });
     }
   }
 }

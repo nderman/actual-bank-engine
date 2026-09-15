@@ -5,6 +5,7 @@ import { ingest } from '../../src/core/ledger.js';
 import { isBankPlugin } from '../../src/core/plugin.js';
 import type { NormalizedTransaction } from '../../src/core/schema.js';
 import { allPlugins } from '../../src/plugins/registry.js';
+import { describeError } from '../../src/core/errors.js';
 
 /** Look back this many days each scheduled sweep; comfortably overlaps the daily cadence so
  *  nothing slips between runs. Duplicates are harmless — Actual dedupes on imported_id. */
@@ -96,8 +97,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       collected.push(...txns);
       outcomes.push({ plugin: plugin.id, ok: true, fetched: txns.length });
     } catch (err) {
-      log.error('plugin fetch failed', { err: String(err) });
-      outcomes.push({ plugin: plugin.id, ok: false, error: String(err) });
+      log.error('plugin fetch failed', { err: describeError(err) });
+      outcomes.push({ plugin: plugin.id, ok: false, error: describeError(err) });
     }
   }
 
@@ -109,7 +110,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
         ingest(session, ctx.logger, collected),
       );
     } catch (err) {
-      ctx.logger.error('cron ingest failed', { err: String(err) });
+      ctx.logger.error('cron ingest failed', { err: describeError(err) });
       res.status(503).json({ window: { startDate, endDate }, outcomes, error: 'ingest failed' });
       return;
     }

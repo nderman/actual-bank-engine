@@ -5,6 +5,7 @@ import { ingest } from '../../src/core/ledger.js';
 import { isWebhookPlugin, WebhookVerificationError } from '../../src/core/plugin.js';
 import type { RawWebhookRequest } from '../../src/core/plugin.js';
 import { getPlugin } from '../../src/plugins/registry.js';
+import { describeError } from '../../src/core/errors.js';
 
 // We need the RAW body for HMAC verification, so disable Vercel's automatic body parsing.
 export const config = { api: { bodyParser: false } };
@@ -44,7 +45,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
   try {
     rawBody = await readRawBody(req);
   } catch (err) {
-    res.status(400).json({ error: `could not read body: ${String(err)}` });
+    res.status(400).json({ error: `could not read body: ${describeError(err)}` });
     return;
   }
 
@@ -71,7 +72,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     const payload = rawBody.length ? (JSON.parse(rawBody) as unknown) : {};
     transactions = await plugin.parseWebhook(payload, ctx);
   } catch (err) {
-    ctx.logger.warn('webhook parse failed', { err: String(err) });
+    ctx.logger.warn('webhook parse failed', { err: describeError(err) });
     res.status(400).json({ error: 'unparseable payload' });
     return;
   }
@@ -88,7 +89,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     );
     res.status(200).json(summary);
   } catch (err) {
-    ctx.logger.error('webhook ingest failed', { err: String(err) });
+    ctx.logger.error('webhook ingest failed', { err: describeError(err) });
     res.status(503).json({ error: 'ingest failed, retry' });
   }
 }

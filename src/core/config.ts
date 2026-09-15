@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { describeError } from './errors.js';
 
 /**
  * Validated, immutable view of the process environment.
@@ -30,7 +31,7 @@ const EnvSchema = z.object({
       } catch (err) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: `INVESTEC_ACCOUNT_MAP is not valid JSON map of {accountId: uuid}: ${String(err)}`,
+          message: `INVESTEC_ACCOUNT_MAP is not valid JSON map of {accountId: uuid}: ${describeError(err)}`,
         });
         return z.NEVER;
       }
