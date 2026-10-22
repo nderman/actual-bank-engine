@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { withSession } from '../../src/core/actual-client.js';
+import { checkVersionSkew, withSession } from '../../src/core/actual-client.js';
 import { buildContext } from '../../src/core/context.js';
 import { ingest } from '../../src/core/ledger.js';
 import { isBankPlugin } from '../../src/core/plugin.js';
@@ -110,8 +110,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
         ingest(session, ctx.logger, collected),
       );
     } catch (err) {
-      ctx.logger.error('cron ingest failed', { err: describeError(err) });
-      res.status(503).json({ window: { startDate, endDate }, outcomes, error: 'ingest failed' });
+      // Carry the REAL error into the response body, not just the log. A bare 'ingest failed'
+      // sent us digging through Vercel logs twice; the cron response is what gets read first.
+      const error = describeError(err);
+      const versions = await checkVersionSkew(ctx.config);
+      ctx.logger.error('cron ingest failed', { err: error, versions });
+      res.status(503).json({
+        window: { startDate, endDate },
+        outcomes,
+        error,
+        versions,
+        hint: versions.skewed
+          ? `@actual-app/api ${versions.client} does not match sync-server ${versions.server}. ` +
+            'Pikapods auto-updates the server; pin the client to the server version and redeploy.'
+          : undefined,
+      });
       return;
     }
   }

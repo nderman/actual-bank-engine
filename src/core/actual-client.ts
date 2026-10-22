@@ -1,4 +1,7 @@
 import { mkdir } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 import * as actual from '@actual-app/api';
 import type { EngineConfig } from './config.js';
 import type { Logger } from './logger.js';
@@ -98,4 +101,97 @@ export async function withSession<T>(
       logger.error('actual.shutdown() failed', { err: describeError(err) });
     }
   }
+}
+
+/**
+ * True only when both versions are known AND differ.
+ *
+ * Deliberately conservative: an unknown client or an unreachable server must NOT be reported as
+ * skew. The first cut of this check read the client version via `require('@actual-app/api/
+ * package.json')`, which fails with ERR_PACKAGE_PATH_NOT_EXPORTED, so it reported skew on every
+ * single call — a diagnostic that would have sent us chasing a version mismatch that wasn't there.
+ */
+export function isSkewed(client: string | null, server: string | null): boolean {
+  return client !== null && server !== null && client !== server;
+}
+
+/** Client/server version pair, and whether they are known to disagree. */
+export interface VersionSkew {
+  client: string | null;
+  server: string | null;
+  skewed: boolean;
+}
+
+/** Installed @actual-app/api version, or null if it can't be determined. */
+function installedClientVersion(): string | null {
+  const require = createRequire(import.meta.url);
+
+  // The package's `exports` map does NOT expose ./package.json, so requiring it directly fails
+  // with ERR_PACKAGE_PATH_NOT_EXPORTED. Resolve the entry point and walk up to the manifest.
+  try {
+    let dir = dirname(require.resolve('@actual-app/api'));
+    for (let depth = 0; depth < 6; depth += 1) {
+      try {
+        const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as {
+          name?: string;
+          version?: string;
+        };
+        if (manifest.name === '@actual-app/api' && manifest.version) return manifest.version;
+      } catch {
+        /* not here; keep walking */
+      }
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch {
+    /* fall through to our own pin */
+  }
+
+  // Fallback: we pin the dependency exactly, so our own manifest is authoritative enough.
+  try {
+    const own = JSON.parse(readFileSync('package.json', 'utf8')) as {
+      dependencies?: Record<string, string>;
+    };
+    const pinned = own.dependencies?.['@actual-app/api'];
+    if (pinned) return pinned.replace(/^[^\d]*/, '') || null;
+  } catch {
+    /* give up */
+  }
+  return null;
+}
+
+/**
+ * Compare our pinned @actual-app/api version against the live sync-server's.
+ *
+ * Why this exists: Pikapods auto-updates the Actual sync-server about monthly, roughly 10-17
+ * days after each npm release, while our client version is baked in at build time. When they
+ * diverge the session still opens (init + downloadBudget succeed) but every API call above it
+ * fails — so the symptom is a bare 503 against a server that looks perfectly healthy. That cost
+ * four days in September 2026 (26.7.0 vs 26.9.0) and three more in October (26.9.0 vs 26.10.0).
+ *
+ * Never throws, and never claims skew it cannot prove: `skewed` is true only when BOTH versions
+ * are known AND differ. A diagnostic that cries wolf is worse than no diagnostic.
+ */
+export async function checkVersionSkew(config: EngineConfig): Promise<VersionSkew> {
+  const client = installedClientVersion();
+
+  let server: string | null = null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(new URL('/info', config.ACTUAL_SERVER_URL), {
+      signal: controller.signal,
+    });
+    if (response.ok) {
+      const info = (await response.json()) as { build?: { version?: string } };
+      server = info.build?.version ?? null;
+    }
+  } catch {
+    /* server unreachable or malformed; leave null */
+  } finally {
+    clearTimeout(timer);
+  }
+
+  return { client, server, skewed: isSkewed(client, server) };
 }
