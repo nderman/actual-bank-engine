@@ -1,0 +1,112 @@
+# Keeps @actual-app/api pinned to whatever the Actual sync-server is actually running.
+#
+# Why this exists: the Pikapods-hosted sync-server auto-updates roughly monthly, about 10-17 days
+# after each npm release, while our client version is baked in at build time. When they diverge
+# the Actual session still opens but every API call above it fails, so sync 503s against a server
+# that looks perfectly healthy. That cost 4 days in Sep 2026 (26.7.0 vs 26.9.0) and 3 more in
+# Oct 2026 (26.9.0 vs 26.10.0). Detecting it was the previous fix; this is the one that stops it.
+#
+# What it does daily: read the server's version, compare to our pin, and if they differ bump the
+# pin, verify the build/tests/lint still pass, commit, and push.
+#
+# Deploying the bump needs a VERCEL_TOKEN secret (Vercel account settings -> Tokens), because the
+# Vercel git integration is not connected to this repo. WITHOUT that secret the job still commits
+# the correct pin but then fails on purpose, so the red tick tells you a manual
+# `npx vercel --prod` is needed. Silence would put us straight back to an undetected outage.
+#
+# Required secret: ACTUAL_SERVER_URL. Optional: VERCEL_TOKEN (for the deploy step).
+name: Track Actual server version
+
+on:
+  schedule:
+    - cron: '20 7 * * *' # daily, 07:20 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: track-actual-version
+  cancel-in-progress: false
+
+jobs:
+  track:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Compare server version against our pin
+        id: compare
+        env:
+          ACTUAL_SERVER_URL: ${{ secrets.ACTUAL_SERVER_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ACTUAL_SERVER_URL}" ]; then
+            echo "::error::ACTUAL_SERVER_URL secret must be set."
+            exit 1
+          fi
+          server=$(curl -fsS --max-time 30 "${ACTUAL_SERVER_URL%/}/info" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["build"]["version"])')
+          pinned=$(python3 -c 'import json; print(json.load(open("package.json"))["dependencies"]["@actual-app/api"])')
+          echo "server=$server"  >> "$GITHUB_OUTPUT"
+          echo "pinned=$pinned"  >> "$GITHUB_OUTPUT"
+          echo "Actual sync-server: $server"
+          echo "our pinned client:  $pinned"
+          if [ "$server" = "$pinned" ]; then
+            echo "skew=false" >> "$GITHUB_OUTPUT"
+            echo "In step. Nothing to do."
+          else
+            echo "skew=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::Version skew: server $server vs pinned $pinned. Bumping."
+          fi
+
+      - name: Bump the pin and verify
+        if: steps.compare.outputs.skew == 'true'
+        run: |
+          set -euo pipefail
+          npm pkg set "dependencies.@actual-app/api=${{ steps.compare.outputs.server }}"
+          npm install
+          installed=$(node -e "console.log(require('./node_modules/@actual-app/api/package.json').version)")
+          if [ "$installed" != "${{ steps.compare.outputs.server }}" ]; then
+            echo "::error::npm installed $installed, expected ${{ steps.compare.outputs.server }}."
+            exit 1
+          fi
+          # A bump that breaks the build is worse than the skew; never push an unverified one.
+          npm run build
+          npm run lint
+          npm test
+
+      - name: Commit and push
+        if: steps.compare.outputs.skew == 'true'
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          git commit -m "Track Actual sync-server: pin @actual-app/api ${{ steps.compare.outputs.server }}
+
+          The Pikapods sync-server auto-updated from ${{ steps.compare.outputs.pinned }} to
+          ${{ steps.compare.outputs.server }}. A pinned client that lags the server opens a
+          session but fails every API call above it, so sync 503s. Build, lint and tests pass
+          on the new version."
+          git push
+
+      - name: Deploy to production
+        if: steps.compare.outputs.skew == 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${VERCEL_TOKEN:-}" ]; then
+            echo "::error::Pin bumped and pushed, but NOT deployed — no VERCEL_TOKEN secret."
+            echo "::error::Sync stays broken until you run: npx vercel --prod --yes"
+            echo "::error::To make this self-healing, add a Vercel token as the VERCEL_TOKEN secret."
+            exit 1
+          fi
+          npx --yes vercel@latest pull --yes --environment=production --token="$VERCEL_TOKEN"
+          npx --yes vercel@latest deploy --prod --yes --token="$VERCEL_TOKEN"
+          echo "Deployed ${{ steps.compare.outputs.server }} to production."
