@@ -1,20 +1,25 @@
-# Keeps @actual-app/api pinned to whatever the Actual sync-server is actually running.
+# Keeps @actual-app/api pinned to whatever the Actual sync-server is actually running, and tells
+# the difference between a harmless version lag and a real outage.
 #
-# Why this exists: the Pikapods-hosted sync-server auto-updates roughly monthly, about 10-17 days
-# after each npm release, while our client version is baked in at build time. When they diverge
-# the Actual session still opens but every API call above it fails, so sync 503s against a server
-# that looks perfectly healthy. That cost 4 days in Sep 2026 (26.7.0 vs 26.9.0) and 3 more in
-# Oct 2026 (26.9.0 vs 26.10.0). Detecting it was the previous fix; this is the one that stops it.
+# Background: the Pikapods-hosted sync-server auto-updates roughly monthly, 10-17 days after each
+# npm release, while our client version is baked in at build time. Some of those gaps break
+# everything and some are completely benign:
 #
-# What it does daily: read the server's version, compare to our pin, and if they differ bump the
-# pin, verify the build/tests/lint still pass, commit, and push.
+#   26.7.0  client vs 26.9.0  server -> BROKE   (4 days of 503s, Sep 2026)
+#   26.9.0  client vs 26.10.0 server -> BROKE   (3 days of 503s, Oct 2026)
+#   26.10.0 client vs 26.11.0 server -> FINE    (17 days of clean syncs, Nov 2026)
 #
-# Deploying the bump needs a VERCEL_TOKEN secret (Vercel account settings -> Tokens), because the
-# Vercel git integration is not connected to this repo. WITHOUT that secret the job still commits
-# the correct pin but then fails on purpose, so the red tick tells you a manual
-# `npx vercel --prod` is needed. Silence would put us straight back to an undetected outage.
+# So skew alone is a risk factor, NOT proof of breakage. The first version of this workflow
+# failed on any version difference, which left a red tick sitting on a healthy repo for 17 days —
+# alarm fatigue, and the surest way to get the next REAL alarm ignored.
 #
-# Required secret: ACTUAL_SERVER_URL. Optional: VERCEL_TOKEN (for the deploy step).
+# This version therefore decides severity from whether data is actually flowing:
+#   skew + sync healthy  -> bump, push, ::notice, job stays GREEN
+#   skew + sync failing  -> bump, push, ::error, job goes RED (deploy needed now)
+#   no skew              -> nothing to do
+#
+# Required secrets: ACTUAL_SERVER_URL, SYNC_URL, CRON_SECRET. Optional: VERCEL_TOKEN, which lets
+# the job deploy the bump itself instead of asking.
 name: Track Actual server version
 
 on:
@@ -32,6 +37,10 @@ concurrency:
 jobs:
   track:
     runs-on: ubuntu-latest
+    # Job-scoped so the deploy step's `if: env.VERCEL_TOKEN != ''` can actually see it. A step's
+    # own `env:` is out of scope for its own `if:`, and `secrets` is not available there either.
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
     steps:
       - uses: actions/checkout@v5
 
@@ -52,8 +61,8 @@ jobs:
           server=$(curl -fsS --max-time 30 "${ACTUAL_SERVER_URL%/}/info" \
             | python3 -c 'import json,sys; print(json.load(sys.stdin)["build"]["version"])')
           pinned=$(python3 -c 'import json; print(json.load(open("package.json"))["dependencies"]["@actual-app/api"])')
-          echo "server=$server"  >> "$GITHUB_OUTPUT"
-          echo "pinned=$pinned"  >> "$GITHUB_OUTPUT"
+          echo "server=$server" >> "$GITHUB_OUTPUT"
+          echo "pinned=$pinned" >> "$GITHUB_OUTPUT"
           echo "Actual sync-server: $server"
           echo "our pinned client:  $pinned"
           if [ "$server" = "$pinned" ]; then
@@ -61,7 +70,33 @@ jobs:
             echo "In step. Nothing to do."
           else
             echo "skew=true" >> "$GITHUB_OUTPUT"
-            echo "::warning::Version skew: server $server vs pinned $pinned. Bumping."
+            echo "Version skew: server $server vs pinned $pinned."
+          fi
+
+      # Is data actually flowing? This probes the LIVE deployment, which still runs the OLD
+      # client — exactly the question we care about: is the current skew breaking anything?
+      - name: Probe live sync health
+        id: health
+        if: steps.compare.outputs.skew == 'true'
+        env:
+          SYNC_URL: ${{ secrets.SYNC_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -o pipefail
+          if [ -z "${SYNC_URL}" ] || [ -z "${CRON_SECRET}" ]; then
+            echo "::warning::SYNC_URL/CRON_SECRET not set; cannot judge severity, assuming broken."
+            echo "healthy=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          code=$(curl -sS --max-time 90 -o /tmp/sync-probe.json -w '%{http_code}' \
+            -H "Authorization: Bearer ${CRON_SECRET}" "$SYNC_URL" || echo 000)
+          echo "probe HTTP $code"
+          cat /tmp/sync-probe.json || true
+          echo ""
+          if [ "$code" = "200" ]; then
+            echo "healthy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "healthy=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Bump the pin and verify
@@ -84,29 +119,52 @@ jobs:
         if: steps.compare.outputs.skew == 'true'
         run: |
           set -euo pipefail
+          if git diff --quiet -- package.json package-lock.json; then
+            echo "Pin already matches; nothing to commit."
+            exit 0
+          fi
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add package.json package-lock.json
           git commit -m "Track Actual sync-server: pin @actual-app/api ${{ steps.compare.outputs.server }}
 
           The Pikapods sync-server auto-updated from ${{ steps.compare.outputs.pinned }} to
-          ${{ steps.compare.outputs.server }}. A pinned client that lags the server opens a
-          session but fails every API call above it, so sync 503s. Build, lint and tests pass
-          on the new version."
+          ${{ steps.compare.outputs.server }}. Matching the server is the right default even when
+          the older client still works. Build, lint and tests pass on the new version."
           git push
 
       - name: Deploy to production
-        if: steps.compare.outputs.skew == 'true'
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        if: steps.compare.outputs.skew == 'true' && env.VERCEL_TOKEN != ''
         run: |
           set -euo pipefail
-          if [ -z "${VERCEL_TOKEN:-}" ]; then
-            echo "::error::Pin bumped and pushed, but NOT deployed — no VERCEL_TOKEN secret."
-            echo "::error::Sync stays broken until you run: npx vercel --prod --yes"
-            echo "::error::To make this self-healing, add a Vercel token as the VERCEL_TOKEN secret."
-            exit 1
-          fi
           npx --yes vercel@latest pull --yes --environment=production --token="$VERCEL_TOKEN"
           npx --yes vercel@latest deploy --prod --yes --token="$VERCEL_TOKEN"
           echo "Deployed ${{ steps.compare.outputs.server }} to production."
+
+      # Severity lives here, and nowhere else. Data flowing = green, however stale the pin.
+      - name: Report severity
+        if: steps.compare.outputs.skew == 'true'
+        run: |
+          set -euo pipefail
+          server='${{ steps.compare.outputs.server }}'
+          pinned='${{ steps.compare.outputs.pinned }}'
+          healthy='${{ steps.health.outputs.healthy }}'
+          if [ -n "${VERCEL_TOKEN:-}" ]; then deployed=true; else deployed=false; fi
+
+          if [ "$deployed" = "true" ]; then
+            echo "::notice::Server moved $pinned -> $server. Pin bumped and deployed."
+            exit 0
+          fi
+
+          if [ "$healthy" = "true" ]; then
+            echo "::notice::Server moved $pinned -> $server and the pin is bumped, but the live \
+          deployment still runs $pinned. Sync is HEALTHY on that pair, so this is not urgent — \
+          deploy at your convenience with 'npx vercel --prod --yes'. Not every version gap breaks: \
+          26.10.0 ran fine against 26.11.0, while 26.9.0 against 26.10.0 did not."
+            exit 0
+          fi
+
+          echo "::error::SYNC IS DOWN. Live deployment runs $pinned against server $server and the \
+          probe did not return 200. The pin is bumped and pushed — deploy it now: \
+          'npx vercel --prod --yes'. Response body is in the 'Probe live sync health' step."
+          exit 1

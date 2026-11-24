@@ -129,5 +129,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
     }
   }
 
-  res.status(200).json({ window: { startDate, endDate }, summary, outcomes });
+  // Report versions on the SUCCESS path too, not only on failure. Skew is a risk factor, not
+  // proof of breakage: 26.10.0 ran happily against a 26.11.0 server for 17 days in Nov 2026,
+  // while 26.7->26.9 and 26.9->26.10 both broke outright. So the useful signal is "data is
+  // flowing AND here is the current version pair", which lets a monitor distinguish a harmless
+  // lag from a real outage instead of alarming on string inequality.
+  const versions = await checkVersionSkew(ctx.config);
+  if (versions.skewed) {
+    ctx.logger.warn('version skew, but ingest succeeded', { versions });
+  }
+  res.status(200).json({ window: { startDate, endDate }, summary, outcomes, versions });
 }
